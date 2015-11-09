@@ -1,0 +1,335 @@
+﻿#region NameSpace
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+
+#endregion
+
+/// <summary>
+/// <para>Version: 1.0.0</para>	 
+/// <para>Author: Li Ye Wei</para>
+/// 
+/// Manage the Audio play.
+/// </summary>
+public class AudioManager : MonoBehaviour {
+
+	#region Varibales
+	/*Singleton Declaration*/
+	// Singleton
+	private static AudioManager instance;
+	
+	// Constuct
+	private AudioManager() {}
+	
+	// Instance
+	public static AudioManager Instance
+	{
+		get
+		{
+			if (instance == null)
+				instance = GameObject.FindObjectOfType(typeof(AudioManager)) as AudioManager;
+			
+			return instance;
+		}
+		
+	}
+	/*End of Singleton Declaration*/
+
+	// Local OTsound contianer to store sound clip.
+	private OTSound m_WinSound;  
+	private OTSound m_OtherSound;  
+	private OTSound m_BGMSound;
+	private OTSound m_WinTailSound;
+	//use hash set since each sound at most play once for every frame.
+	private HashSet<string> m_SoundLists;
+	private bool m_IsPlay;
+
+	private float m_Duration;
+	private float m_Timer;
+	
+	private int m_winSoundIndex;
+	private const float BLINKTIME = 1.58f;
+	private  float[] m_SoundScetion ;
+	private  float[] m_AmountSection;
+	private  float[] m_timePerSection; 
+	private  float[] m_SpeedPerSection; 
+	private  float[] m_SpeedFactor;
+
+
+#endregion
+
+
+	#region Sound Play/Stop
+	/// <summary> 
+	/// Play BGM sound.
+	/// </summary>
+	/// <param name="_delayTime"> Delay time </param>
+	public void PlayBGM(float _delayTime = 0)
+	{
+		if (m_SoundLists.Add ("FGBGM")) 
+		{
+			m_BGMSound =  new OTSound("FGBGM").Play ().Delay(_delayTime).Loop();
+		}
+	}
+
+	/// <summary> 
+	/// Stop BGM sound
+	/// </summary>
+	public void StopBGM()
+	{
+		if(m_SoundLists.Remove("FGBGM"))
+		{
+			if (m_BGMSound.isPlaying)
+				m_BGMSound.Stop ();
+		}
+	}
+
+
+	/// <summary> 
+	/// Check if the sound clip with specific name playing or not.
+	/// </summary>
+	/// <param name="_name"> name of sound track. </param>
+	public bool IsPlaying(string _name)
+	{
+		return m_SoundLists.Contains(_name);
+	//	if (m_OtherSound.name == _name)
+	//		return m_OtherSound.isPlaying;
+	//	else
+	//		return false;
+		
+	
+
+	}
+
+	/// <summary> 
+	/// Play sound clip with given name.
+	/// </summary>
+	/// <param name="_name"> name of sound track. </param>
+	/// <param name="_delayTime"> Time to delay. </param>
+	public void PlaySound(string _name, float _delayTime = 0f)
+	{
+		//hash set 'Add' function return true if _name is successful add to contianer.
+		// return false, if _name has already been in the contianer.
+		if (m_SoundLists.Add (_name)) 
+		{
+			if(_name == "Anticipation")
+				m_OtherSound =  new OTSound(_name).Play ().Delay(_delayTime).Loop();
+			else
+				m_OtherSound =  new OTSound(_name).Play ().Delay(_delayTime);
+		}
+	}
+
+
+
+	/// <summary> 
+	/// Stop Play sound, remove from the hash set for play again at next time.
+	/// </summary>
+	/// <param name="_name"> name of sound track. </param>
+	public void StopSound(string _name)
+	{
+		m_WinTailSound.Stop();
+		if(m_SoundLists.Remove(_name))
+		 {
+			if (m_OtherSound.isPlaying)
+				m_OtherSound.Stop ();
+		}
+	}
+
+	/// <summary> 
+	/// Win sound play when meter running, spining speed will reflected to sound length.
+	/// </summary>
+	/// <param name="_meterSpeed"> meter spining speed. </param>
+	/// <param name="_delayTime"> delay time. </param>
+
+
+
+
+	public void PlayWinSound(ref float _meterSpeed, float _delayTime = 0f)
+	{
+		if (GameVariables.Instance.IS_INCRESED)
+			return;
+
+
+		// Silence win sound in free game. 
+		if (GameVariables.Instance.IS_FREEGAME && FreeGame.Instance.FG_LEFT > 0) 
+		{
+			int wS = ComputeWinMusicIndex ();
+			string _name = "LineWin" + wS.ToString ();
+			m_WinSound =  new OTSound(_name).Play ().Delay(_delayTime);
+			m_Duration = m_WinSound.GetSoundDuration();
+			m_WinSound.Stop();
+			_meterSpeed = WinManager.Instance.TOTALWIN / m_Duration; 
+			return;
+		}
+		//! update meter spped no matter the game is in main or free game.
+		if(WinManager.Instance.Is_BigWin())
+		{
+			string _name = "BigWin";
+			if(m_SoundLists.Add (_name))
+			{	
+				m_Timer = 0;
+				m_WinSound =  new OTSound(_name).Play ().Delay(_delayTime).Loop();
+				m_Duration = m_WinSound.GetSoundDuration() * 2;
+				
+				//GoldCoinEmitter.Instance.StartGoldCoinAnimation();
+				
+			}
+			m_Timer += Time.deltaTime;
+			
+			_meterSpeed = 50 * GameVariables.Instance.GetCreditPerLine();
+			if(m_Timer > m_Duration/2)
+				_meterSpeed = AdjustSpeed (m_Timer, m_Duration);
+
+		}
+		else
+		{
+			//! Norma win sound case:
+			int wS = ComputeWinMusicIndex ();
+			string _name = "LineWin" + wS.ToString ();
+			if(m_SoundLists.Add (_name))
+			{ 
+				m_Timer = 0f;
+				//! Play selected win sound and win tail.
+				m_WinSound =  new OTSound(_name).Play ().Delay(_delayTime);
+				m_Duration = m_WinSound.GetSoundDuration();
+				if(wS >= 9 && wS <= 30)
+					m_WinTailSound.Play ().Delay(m_Duration);
+			}
+			m_Timer += Time.deltaTime;
+			_meterSpeed = WinManager.Instance.TOTALWIN / m_Duration; //AdjustSpeed (m_Timer, m_Duration);
+		}
+		
+		
+		if (m_Timer > m_Duration)
+			GameVariables.Instance.IS_INCRESED = true;
+
+	}
+
+	
+	/// <summary>
+	///Algorthim to adjust meter speed to make sure all the sound will play one loop exactly 
+	/// </summary>
+	/// <returns>The new speed of meter. </returns>
+	/// <param name="_timer">current time.</param>
+	/// <param name="_duration">length of sound clip</param>
+	private float AdjustSpeed(float _timer, float _duration)
+	{
+		//m_SpeedPerSection [0] = 
+		float s = GetPhaseSpeed (0, _duration);
+
+		if (m_Timer > m_Duration * m_SoundScetion[0] && m_Timer < m_Duration * (m_SoundScetion[1] + m_SoundScetion[0]) )
+		{
+			s =  GetPhaseSpeed (1, _duration);
+		}
+		else if ( m_Timer >= m_Duration *  (m_SoundScetion[1] + m_SoundScetion[0])  && m_Timer < m_Duration * (m_SoundScetion[2] + m_SoundScetion[1] + m_SoundScetion[0]) )
+		{
+			s = GetPhaseSpeed (2, _duration);
+		}
+		else if ( m_Timer >= m_Duration *  (m_SoundScetion[2] + m_SoundScetion[1] + m_SoundScetion[0]) && m_Timer < m_Duration )
+		{
+			Debug.Log("Final Phase! Timer :  " + m_Timer);
+			s = GetPhaseSpeed (3, _duration);
+		}
+		return s;
+	}
+
+	/// <summary>
+	/// Helper function to return the meter speed for current phase. 
+	/// </summary>
+	/// <returns>The phase speed.</returns>
+	/// <param name="_i"> current phase </param>
+	/// <param name="_d"> length of sound </param>
+	private float GetPhaseSpeed (int _i, float _d)
+	{
+		float winAmount = WinManager.Instance.TOTALWIN - m_WinSound.GetSoundDuration() * 50 * GameVariables.Instance.GetCreditPerLine();
+		return (winAmount * m_AmountSection [_i]) / (_d * m_SoundScetion [_i]);
+	}
+
+	/// <summary> 
+	/// Stop playing win increment sound.
+	/// </summary>
+	public void StopWinSound()
+	{
+		//if (GameVariables.Instance.IS_FREEGAME)
+		//	return;
+		m_WinTailSound.Stop ();
+		if(!WinManager.Instance.Is_BigWin())
+		{
+			string _name = "LineWin" + m_winSoundIndex.ToString ();
+			m_SoundLists.Remove(_name);
+		}
+		else
+		{
+		
+			m_SoundLists.Remove("BigWin");
+		}
+		
+		if (m_WinSound.isPlaying)
+		{
+			m_WinSound.Stop ();
+		}
+	}
+
+	#endregion
+
+	/// <summary> 
+	/// Algoritm to choose which win sound to play
+	/// </summary>
+	private int ComputeWinMusicIndex()
+	{  
+		m_winSoundIndex = 0;
+		int iWinMusicIndex = 0;
+		// Jia Qian's formula		
+		float a = 1.5f;
+		float b = 0.7f;
+		float s = 1.19f;
+		float W = (float)WinManager.Instance.TOTALWIN;
+		float C = (float)GameVariables.Instance.GetCreditPerLine();
+		//! for new formular, L only takes maximum of play lines.
+		float L = 50;//(float)GameVariables.Instance.GetPlayLine();
+		
+		float component1 = Mathf.Log((60 * W) / (13 * (a + b * C) * L), s);
+		float component2 = (L/40) + (C/20);
+		
+		iWinMusicIndex = (int)Mathf.Floor((component1) + component2);
+
+		if (iWinMusicIndex < 0)
+		{
+			iWinMusicIndex = 1;  
+		}
+		else if (iWinMusicIndex >= 28)
+		{
+			iWinMusicIndex = 30;
+		}
+		else
+		{
+			iWinMusicIndex += 2;
+		}
+	
+//		Debug.Log ("sourn Track Selected:  " + iWinMusicIndex);
+		m_winSoundIndex = iWinMusicIndex;
+		return  (iWinMusicIndex);
+	}
+	
+	/// <summary> 
+	/// Use this for initialization
+	/// </summary>
+	void Start () {
+		m_IsPlay = false;
+		m_winSoundIndex = 1;
+		m_SoundLists = new HashSet<string> ();
+		m_WinSound = new OTSound ("LineWin1").Idle ();
+		m_OtherSound = new OTSound ("").Idle ();
+		m_WinTailSound = new OTSound ("LineWinTail").Idle();
+
+		//! used for time sections and amount sections
+		//! for 0.5f,  means t = 0.5f * duration,  amount = TotalWin * 0.5f.
+		m_AmountSection = new float[4] {0.4f, 0.25f, 0.25f, 0.1f  };
+		m_SoundScetion = new float[4] {0.5f, 0.25f, 0.2f, 0.05f};
+		m_timePerSection = new float[3 ];
+		m_SpeedPerSection = new float[3];
+		m_SpeedFactor = new float[3] { 1.1f, 1.5f, 3f};
+
+	}
+
+}
